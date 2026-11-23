@@ -3,6 +3,9 @@ from dotenv import load_dotenv
 from openai import OpenAI
 import argparse
 
+from call_function import available_functions, call_function
+from prompts import system_prompt
+
 load_dotenv()
 api_key = os.environ.get("OPENROUTER_API_KEY")
 
@@ -14,28 +17,39 @@ client = OpenAI(
     api_key=api_key,
 )
 
+parser = argparse.ArgumentParser(description="Chatbot")
+parser.add_argument("user_prompt", type=str, help="User prompt")
+parser.add_argument("--verbose", action="store_true", help="Enable verbose output")
+args = parser.parse_args()
+
+messages = [
+    {"role": "system", "content": system_prompt},
+    {
+        "role": "user",
+        "content": args.user_prompt,
+    }
+]
+
 response = client.chat.completions.create(
     model="openrouter/free",
-    messages=[
-        {
-            "role": "user",
-            "content": "Why is Boot.dev such a great place to learn backend development? Use one paragraph maximum.",
-        }
-    ],
+    messages=messages,
+    tools=available_functions,
 )
 
-if response.usage is None:
-    raise RuntimeError("Response usage is not available")
+message = response.choices[0].message
+if message.tool_calls:
+    for tool_call in message.tool_calls:
+        result_message = call_function(tool_call, verbose=args.verbose)
+        if not result_message["content"]:
+            raise RuntimeError("Function returned an empty result")
+        if args.verbose:
+            print(f"-> {result_message['content']}")
+else:
+    print(message.content)
 
-print(f"Prompt tokens: {response.usage.prompt_tokens}")
-print(f"Response tokens: {response.usage.completion_tokens}")
-print(response.choices[0].message.content)
+if args.verbose:
+    if response.usage is None:
+        raise RuntimeError("Response usage is not available")
 
-
-parser = argparse.ArgumentParser(description="Chatbot")
-parser.add_argument(
-    "user_prompt",
-    type=str,
-    help="User prompt"
-)
-args = parser.parse_args()
+    print(f"Prompt tokens: {response.usage.prompt_tokens}")
+    print(f"Response tokens: {response.usage.completion_tokens}")
